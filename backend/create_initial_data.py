@@ -6,7 +6,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def create_admin():
+def create_admin_user():
     """
     Create the initial admin user if it doesn't exist
     """
