@@ -48,6 +48,16 @@ class Chapter(db.Model):
     # Make sure chapters have unique names within a subject
     __table_args__ = (db.UniqueConstraint('subject_id', 'name', name='_subject_chapter_uc'),)
 
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'subject_id': self.subject_id,
+            'created_at': self.created_at.isoformat(),
+            'quizzes_count': self.quizzes.count()
+        }
+
 class Quiz(db.Model):
     __tablename__ = 'quizzes'
     
