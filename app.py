@@ -32,19 +32,15 @@ with app.app_context():
         create_sample_data()
 
 # Serve index.html for the frontend
-@app.route('/')
-@app.route('/<path:path>', methods=['GET'])
-def serve(path=''):
-    # If the path starts with 'api/', let the API blueprint handle it
-    # This is causing the error - Blueprints don't have a handle method
-    # Instead, Flask's routing system will handle this automatically since we registered the blueprint
-    
-    # For all paths that are not API routes, serve index.html
-    if not path.startswith('api/'):
-        return render_template('index.html')
-    else:
-        # For API paths that weren't matched by the blueprint, return 404
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve(path):
+    # If path starts with api/, let the API blueprint handle it
+    if path.startswith('api/'):
         return jsonify({"error": "API endpoint not found"}), 404
+        
+    # For all other paths, serve index.html to let frontend routing handle it
+    return render_template('index.html')
 
 # Special route for downloading user files
 @app.route('/backend/celery/user-downloads/<path:filename>')
