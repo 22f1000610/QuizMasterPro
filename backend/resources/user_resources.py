@@ -8,7 +8,7 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-def user_register():
+def create_user():
     """Register a new user"""
     data = request.get_json()
     
