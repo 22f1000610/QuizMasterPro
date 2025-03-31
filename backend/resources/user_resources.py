@@ -1,75 +1,82 @@
 from flask import request, jsonify
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
-from werkzeug.security import generate_password_hash, check_password_hash
-from backend.extensions import db
 from backend.models import User
-import logging
 from datetime import datetime
+import logging
 
 logger = logging.getLogger(__name__)
 
-def create_user():
-    """Register a new user"""
+def create_user(request):
     data = request.get_json()
 
+    if not data or not data.get('username') or not data.get('email') or not data.get('password'):
+        return jsonify({"error": "Missing required fields"}), 400
+
+    # Check if username already exists
+    if User.query.filter_by(username=data['username']).first():
+        return jsonify({"error": "Username already exists"}), 400
+
+    # Check if email already exists
+    if User.query.filter_by(email=data['email']).first():
+        return jsonify({"error": "Email already exists"}), 400
+
+    # Create new user
+    user = User(
+        username=data['username'],
+        email=data['email']
+    )
+    user.set_password(data['password'])
+
     try:
-        # Check if user already exists
-        if User.query.filter_by(email=data['email']).first():
-            return jsonify({"error": "Email already registered"}), 400
-
-        # Create new user
-        user = User(
-            username=data['username'],
-            email=data['email'],
-            password=generate_password_hash(data['password'])
-        )
-
+        from backend.extensions import db
         db.session.add(user)
         db.session.commit()
-
-        return jsonify({"message": "User created successfully"}), 201
-
+        return jsonify({
+            "message": "User created successfully",
+            "user_id": user.id
+        }), 201
     except Exception as e:
-        logger.error(f"Error creating user: {str(e)}")
-        return jsonify({"error": "Could not create user"}), 500
+        return jsonify({"error": str(e)}), 500
 
-def login_user():
-    """Login a user"""
+def login_user(request):
     data = request.get_json()
 
-    try:
-        user = User.query.filter_by(email=data['email']).first()
+    if not data or not data.get('username') or not data.get('password'):
+        return jsonify({"error": "Missing username or password"}), 400
 
-        if user and check_password_hash(user.password, data['password']):
-            access_token = create_access_token(identity=user.id)
-            return jsonify({
-                "access_token": access_token,
-                "user": user.to_dict()
-            }), 200
+    user = User.query.filter_by(username=data['username']).first()
 
+    if not user or not user.check_password(data['password']):
         return jsonify({"error": "Invalid credentials"}), 401
 
-    except Exception as e:
-        logger.error(f"Error logging in: {str(e)}")
-        return jsonify({"error": "Could not log in"}), 500
+    # Update last active timestamp
+    user.last_active = datetime.utcnow()
+    from backend.extensions import db
+    db.session.commit()
 
-@jwt_required()
+    # Create access token
+    access_token = create_access_token(identity=str(user.id))
+
+    return jsonify({
+        "access_token": access_token,
+        "user_id": user.id,
+        "username": user.username,
+        "is_admin": user.is_admin
+    }), 200
+
 def update_last_active():
-    """Update user's last active timestamp"""
     try:
+        from flask_jwt_extended import get_jwt_identity
         user_id = get_jwt_identity()
         user = User.query.get(user_id)
-
         if user:
             user.last_active = datetime.utcnow()
+            from backend.extensions import db
             db.session.commit()
             return jsonify({"message": "Last active time updated"}), 200
-
         return jsonify({"error": "User not found"}), 404
-
     except Exception as e:
-        logger.error(f"Error updating last active: {str(e)}")
-        return jsonify({"error": "Could not update last active time"}), 500
+        return jsonify({"error": str(e)}), 500
 
 @jwt_required()
 def get_user_profile():

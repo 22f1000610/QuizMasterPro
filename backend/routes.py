@@ -24,8 +24,14 @@ def register():
     return create_user(request)
 
 @api_bp.route('/users/login', methods=['POST'])
-@api_bp.route('/admin/login', methods=['POST']) 
+@api_bp.route('/admin/login', methods=['POST'])
 def login():
+    data = request.get_json()
+    if request.path.startswith('/api/admin/login'):
+        # Check if user exists and is admin
+        user = User.query.filter_by(username=data.get('username')).first()
+        if not user or not user.is_admin:
+            return jsonify({"error": "Invalid admin credentials"}), 401
     return login_user(request)
 
 @api_bp.route('/users/active', methods=['POST'])
