@@ -28,7 +28,7 @@ with app.app_context():
     # Create admin user if it doesn't exist
     create_admin_user()
     # Create sample data for testing
-    if app.config['ENV'] == 'development':
+    if app.debug:
         create_sample_data()
 
 # Serve index.html for the frontend
