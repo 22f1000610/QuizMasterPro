@@ -50,6 +50,12 @@ def users():
 def update_role(user_id):
     return update_user_role(user_id, request)
 
+@api_bp.route('/admin/stats', methods=['GET'])
+@jwt_required()
+def get_stats():
+    from backend.resources.admin_resources import get_admin_dashboard_stats
+    return get_admin_dashboard_stats()
+
 # Quiz routes
 @api_bp.route('/quizzes', methods=['GET'])
 @jwt_required()
