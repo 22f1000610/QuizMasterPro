@@ -60,7 +60,8 @@ def get_stats():
 @api_bp.route('/quizzes', methods=['GET'])
 @jwt_required()
 def list_quizzes():
-    return get_quizzes()
+    chapter_id = request.args.get('chapter_id', None)
+    return get_quizzes(chapter_id)
 
 @api_bp.route('/quizzes/search', methods=['GET'])
 @jwt_required()
@@ -168,7 +169,14 @@ def remove_subject(subject_id):
 def get_subject_chapters(subject_id):
     try:
         chapters = Chapter.query.filter_by(subject_id=subject_id).all()
-        return jsonify([chapter.to_dict() for chapter in chapters])
+        return jsonify([{
+            'id': chapter.id,
+            'name': chapter.name,
+            'description': chapter.description,
+            'subject_id': chapter.subject_id,
+            'created_at': chapter.created_at.isoformat(),
+            'quizzes_count': chapter.quizzes.count()
+        } for chapter in chapters])
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
