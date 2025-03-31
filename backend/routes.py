@@ -19,11 +19,12 @@ from backend.resources.score_resources import get_user_scores
 api_bp = Blueprint('api', __name__)
 
 # User routes
-@api_bp.route('/register', methods=['POST'])
+@api_bp.route('/users/register', methods=['POST'])
 def register():
     return create_user(request)
 
-@api_bp.route('/login', methods=['POST'])
+@api_bp.route('/users/login', methods=['POST'])
+@api_bp.route('/admin/login', methods=['POST']) 
 def login():
     return login_user(request)
 

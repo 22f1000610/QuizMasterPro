@@ -35,12 +35,12 @@ with app.app_context():
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve(path):
-    # If path starts with api/, let the API blueprint handle it
-    if path.startswith('api/'):
-        return jsonify({"error": "API endpoint not found"}), 404
-        
-    # For all other paths, serve index.html to let frontend routing handle it
-    return render_template('index.html')
+    # For all paths that don't start with api/, serve index.html
+    if not path.startswith('api/'):
+        return render_template('index.html')
+    
+    # Let the blueprint handle API routes
+    return api_bp.handle(path)
 
 # Special route for downloading user files
 @app.route('/backend/celery/user-downloads/<path:filename>')
