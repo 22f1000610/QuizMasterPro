@@ -35,7 +35,7 @@ def admin_login():
     }), 200
 
 @jwt_required()
-def admin_get_users():
+def get_users():
     """Get all users"""
     user_id = get_jwt_identity()
     
