@@ -432,6 +432,27 @@ def delete_question(question_id):
         return jsonify({"error": "Error deleting question"}), 500
 
 @jwt_required()
+def get_quiz(quiz_id):
+    """Get a specific quiz"""
+    user_id = get_jwt_identity()
+    
+    # Check if quiz exists
+    quiz = Quiz.query.get(quiz_id)
+    if not quiz:
+        return jsonify({"error": "Quiz not found"}), 404
+        
+    quiz_data = {
+        "id": quiz.id,
+        "title": quiz.title,
+        "description": quiz.description,
+        "chapter_id": quiz.chapter_id,
+        "date_of_quiz": quiz.date_of_quiz.isoformat(),
+        "time_duration": quiz.time_duration,
+        "created_at": quiz.created_at.isoformat()
+    }
+    
+    return jsonify(quiz_data), 200
+
 def get_quiz_questions(quiz_id):
     """Get all questions for a quiz for users to take"""
     user_id = get_jwt_identity()
