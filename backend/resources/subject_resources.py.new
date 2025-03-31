@@ -1,0 +1,384 @@
+from flask import request, jsonify
+from flask_jwt_extended import jwt_required, get_jwt_identity
+from app import db, redis_client
+from backend.models import Subject, Chapter, User
+import json
+import logging
+
+logger = logging.getLogger(__name__)
+
+@jwt_required()
+def get_subjects():
+    """Get all subjects"""
+    # Try to get from cache first if Redis is available
+    cache_key = "all_subjects"
+    cached_data = None
+    
+    if redis_client:
+        try:
+            cached_data = redis_client.get(cache_key)
+        except Exception as e:
+            logger.warning(f"Redis get error: {str(e)}")
+    
+    if cached_data:
+        return jsonify(json.loads(cached_data)), 200
+    
+    # If not in cache, query the database
+    subjects = Subject.query.all()
+    
+    subjects_data = [{
+        "id": subject.id,
+        "name": subject.name,
+        "description": subject.description,
+        "created_at": subject.created_at.isoformat(),
+        "chapters_count": subject.chapters.count()
+    } for subject in subjects]
+    
+    # Cache the results for 5 minutes if Redis is available
+    if redis_client:
+        try:
+            redis_client.setex(cache_key, 300, json.dumps(subjects_data))
+        except Exception as e:
+            logger.warning(f"Redis setex error: {str(e)}")
+    
+    return jsonify(subjects_data), 200
+
+@jwt_required()
+def create_subject():
+    """Create a new subject"""
+    current_user_id = get_jwt_identity()
+    
+    # Get the user from the database using the identity (which is the user ID as a string)
+    user = User.query.get(current_user_id)
+    
+    # Check if the user is an admin
+    if not user or not user.is_admin:
+        return jsonify({"error": "Admin privileges required"}), 403
+    
+    data = request.get_json()
+    
+    if not data or not data.get('name'):
+        return jsonify({"error": "Subject name is required"}), 400
+    
+    # Check if subject with the same name already exists
+    existing_subject = Subject.query.filter_by(name=data['name']).first()
+    if existing_subject:
+        return jsonify({"error": "Subject with this name already exists"}), 400
+    
+    # Create new subject
+    subject = Subject(
+        name=data['name'],
+        description=data.get('description', '')
+    )
+    
+    try:
+        db.session.add(subject)
+        db.session.commit()
+        
+        # Invalidate cache if Redis is available
+        if redis_client:
+            try:
+                redis_client.delete("all_subjects")
+            except Exception as e:
+                logger.warning(f"Redis delete error: {str(e)}")
+        
+        return jsonify({
+            "message": "Subject created successfully",
+            "subject": {
+                "id": subject.id,
+                "name": subject.name,
+                "description": subject.description,
+                "created_at": subject.created_at.isoformat()
+            }
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error creating subject: {str(e)}")
+        return jsonify({"error": "Failed to create subject"}), 500
+
+@jwt_required()
+def update_subject(subject_id):
+    """Update an existing subject"""
+    current_user_id = get_jwt_identity()
+    
+    # Get the user from the database using the identity
+    user = User.query.get(current_user_id)
+    
+    # Check if the user is an admin
+    if not user or not user.is_admin:
+        return jsonify({"error": "Admin privileges required"}), 403
+    
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({"error": "No input data provided"}), 400
+    
+    # Check if subject exists
+    subject = Subject.query.get(subject_id)
+    if not subject:
+        return jsonify({"error": "Subject not found"}), 404
+    
+    # Check if name is being updated and is not duplicate
+    if 'name' in data and data['name'] != subject.name:
+        existing_subject = Subject.query.filter_by(name=data['name']).first()
+        if existing_subject:
+            return jsonify({"error": "Subject with this name already exists"}), 400
+        subject.name = data['name']
+    
+    # Update description if provided
+    if 'description' in data:
+        subject.description = data['description']
+    
+    try:
+        db.session.commit()
+        
+        # Invalidate cache if Redis is available
+        if redis_client:
+            try:
+                redis_client.delete("all_subjects")
+            except Exception as e:
+                logger.warning(f"Redis delete error: {str(e)}")
+        
+        return jsonify({
+            "message": "Subject updated successfully",
+            "subject": {
+                "id": subject.id,
+                "name": subject.name,
+                "description": subject.description,
+                "created_at": subject.created_at.isoformat()
+            }
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error updating subject: {str(e)}")
+        return jsonify({"error": "Failed to update subject"}), 500
+
+@jwt_required()
+def delete_subject(subject_id):
+    """Delete a subject"""
+    current_user_id = get_jwt_identity()
+    
+    # Get the user from the database using the identity
+    user = User.query.get(current_user_id)
+    
+    # Check if the user is an admin
+    if not user or not user.is_admin:
+        return jsonify({"error": "Admin privileges required"}), 403
+    
+    # Check if subject exists
+    subject = Subject.query.get(subject_id)
+    if not subject:
+        return jsonify({"error": "Subject not found"}), 404
+    
+    try:
+        db.session.delete(subject)
+        db.session.commit()
+        
+        # Invalidate cache if Redis is available
+        if redis_client:
+            try:
+                redis_client.delete("all_subjects")
+            except Exception as e:
+                logger.warning(f"Redis delete error: {str(e)}")
+        
+        return jsonify({"message": "Subject deleted successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error deleting subject: {str(e)}")
+        return jsonify({"error": "Failed to delete subject"}), 500
+
+@jwt_required()
+def get_chapters(subject_id):
+    """Get all chapters for a subject"""
+    # Try to get from cache first if Redis is available
+    cache_key = f"subject_{subject_id}_chapters"
+    cached_data = None
+    
+    if redis_client:
+        try:
+            cached_data = redis_client.get(cache_key)
+        except Exception as e:
+            logger.warning(f"Redis get error: {str(e)}")
+    
+    if cached_data:
+        return jsonify(json.loads(cached_data)), 200
+    
+    # Check if subject exists
+    subject = Subject.query.get(subject_id)
+    if not subject:
+        return jsonify({"error": "Subject not found"}), 404
+    
+    # Get all chapters for the subject
+    chapters = Chapter.query.filter_by(subject_id=subject_id).all()
+    
+    chapters_data = [{
+        "id": chapter.id,
+        "name": chapter.name,
+        "description": chapter.description,
+        "subject_id": chapter.subject_id,
+        "created_at": chapter.created_at.isoformat(),
+        "quizzes_count": chapter.quizzes.count()
+    } for chapter in chapters]
+    
+    # Cache the results for 5 minutes if Redis is available
+    if redis_client:
+        try:
+            redis_client.setex(cache_key, 300, json.dumps(chapters_data))
+        except Exception as e:
+            logger.warning(f"Redis setex error: {str(e)}")
+    
+    return jsonify(chapters_data), 200
+
+@jwt_required()
+def create_chapter(subject_id):
+    """Create a new chapter for a subject"""
+    current_user_id = get_jwt_identity()
+    
+    # Get the user from the database using the identity
+    user = User.query.get(current_user_id)
+    
+    # Check if the user is an admin
+    if not user or not user.is_admin:
+        return jsonify({"error": "Admin privileges required"}), 403
+    
+    data = request.get_json()
+    
+    if not data or not data.get('name'):
+        return jsonify({"error": "Chapter name is required"}), 400
+    
+    # Check if subject exists
+    subject = Subject.query.get(subject_id)
+    if not subject:
+        return jsonify({"error": "Subject not found"}), 404
+    
+    # Check if chapter with the same name already exists for this subject
+    existing_chapter = Chapter.query.filter_by(subject_id=subject_id, name=data['name']).first()
+    if existing_chapter:
+        return jsonify({"error": "Chapter with this name already exists for this subject"}), 400
+    
+    # Create new chapter
+    chapter = Chapter(
+        name=data['name'],
+        description=data.get('description', ''),
+        subject_id=subject_id
+    )
+    
+    try:
+        db.session.add(chapter)
+        db.session.commit()
+        
+        # Invalidate cache if Redis is available
+        if redis_client:
+            try:
+                redis_client.delete(f"subject_{subject_id}_chapters")
+            except Exception as e:
+                logger.warning(f"Redis delete error: {str(e)}")
+        
+        return jsonify({
+            "message": "Chapter created successfully",
+            "chapter": {
+                "id": chapter.id,
+                "name": chapter.name,
+                "description": chapter.description,
+                "subject_id": chapter.subject_id,
+                "created_at": chapter.created_at.isoformat()
+            }
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error creating chapter: {str(e)}")
+        return jsonify({"error": "Failed to create chapter"}), 500
+
+@jwt_required()
+def update_chapter(chapter_id):
+    """Update an existing chapter"""
+    current_user_id = get_jwt_identity()
+    
+    # Get the user from the database using the identity
+    user = User.query.get(current_user_id)
+    
+    # Check if the user is an admin
+    if not user or not user.is_admin:
+        return jsonify({"error": "Admin privileges required"}), 403
+    
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({"error": "No input data provided"}), 400
+    
+    # Check if chapter exists
+    chapter = Chapter.query.get(chapter_id)
+    if not chapter:
+        return jsonify({"error": "Chapter not found"}), 404
+    
+    # Check if name is being updated and is not duplicate
+    if 'name' in data and data['name'] != chapter.name:
+        existing_chapter = Chapter.query.filter_by(subject_id=chapter.subject_id, name=data['name']).first()
+        if existing_chapter:
+            return jsonify({"error": "Chapter with this name already exists for this subject"}), 400
+        chapter.name = data['name']
+    
+    # Update description if provided
+    if 'description' in data:
+        chapter.description = data['description']
+    
+    try:
+        db.session.commit()
+        
+        # Invalidate cache if Redis is available
+        if redis_client:
+            try:
+                redis_client.delete(f"subject_{chapter.subject_id}_chapters")
+            except Exception as e:
+                logger.warning(f"Redis delete error: {str(e)}")
+        
+        return jsonify({
+            "message": "Chapter updated successfully",
+            "chapter": {
+                "id": chapter.id,
+                "name": chapter.name,
+                "description": chapter.description,
+                "subject_id": chapter.subject_id,
+                "created_at": chapter.created_at.isoformat()
+            }
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error updating chapter: {str(e)}")
+        return jsonify({"error": "Failed to update chapter"}), 500
+
+@jwt_required()
+def delete_chapter(chapter_id):
+    """Delete a chapter"""
+    current_user_id = get_jwt_identity()
+    
+    # Get the user from the database using the identity
+    user = User.query.get(current_user_id)
+    
+    # Check if the user is an admin
+    if not user or not user.is_admin:
+        return jsonify({"error": "Admin privileges required"}), 403
+    
+    # Check if chapter exists
+    chapter = Chapter.query.get(chapter_id)
+    if not chapter:
+        return jsonify({"error": "Chapter not found"}), 404
+    
+    subject_id = chapter.subject_id
+    
+    try:
+        db.session.delete(chapter)
+        db.session.commit()
+        
+        # Invalidate cache if Redis is available
+        if redis_client:
+            try:
+                redis_client.delete(f"subject_{subject_id}_chapters")
+            except Exception as e:
+                logger.warning(f"Redis delete error: {str(e)}")
+        
+        return jsonify({"message": "Chapter deleted successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error deleting chapter: {str(e)}")
+        return jsonify({"error": "Failed to delete chapter"}), 500
