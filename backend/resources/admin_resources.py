@@ -39,6 +39,49 @@ def get_users():
     """Get all users"""
     user_id = get_jwt_identity()
     
+    # Get the user from the database
+    current_user = User.query.get(user_id)
+    
+    # Check if the user is an admin
+    if not current_user or not current_user.is_admin:
+        return jsonify({"error": "Admin privileges required"}), 403
+    
+    try:
+        users = User.query.all()
+        return jsonify([user.to_dict() for user in users]), 200
+    except Exception as e:
+        logger.error(f"Error getting users: {str(e)}")
+        return jsonify({"error": "Could not retrieve users"}), 500
+
+def update_user_role(user_id, request):
+    """Update user's admin status"""
+    current_user_id = get_jwt_identity()
+    
+    # Get the current user
+    current_user = User.query.get(current_user_id)
+    
+    # Check if the current user is an admin
+    if not current_user or not current_user.is_admin:
+        return jsonify({"error": "Admin privileges required"}), 403
+    
+    # Get the target user
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    
+    data = request.get_json()
+    if 'is_admin' not in data:
+        return jsonify({"error": "is_admin field is required"}), 400
+    
+    try:
+        user.is_admin = bool(data['is_admin'])
+        db.session.commit()
+        return jsonify({"message": "User role updated successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error updating user role: {str(e)}")
+        return jsonify({"error": "Could not update user role"}), 500
+    
     # Check if the user is an admin
     user = User.query.get(user_id)
     if not user or not user.is_admin:
